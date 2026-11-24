@@ -59,3 +59,12 @@ src/
 - `react` ^18.2.0
 - `recharts` ^2.8.0  
 - `lucide-react` ^0.383.0
+
+## ☁️ Deploying to Vercel
+
+1. Push the repo to GitHub and import it at https://vercel.com/new (framework is auto-detected as Create React App; `vercel.json` sets build/output).
+2. In **Project → Settings → Environment Variables**, add every variable listed in `.env.example` (all `REACT_APP_FIREBASE_*`) for Production, Preview and Development.
+3. Deploy. CRA inlines `REACT_APP_*` values at build time, so **redeploy after changing any variable**.
+4. In Firebase Console → Authentication → Settings → **Authorized domains**, add your `*.vercel.app` / custom domain, otherwise sign-in will fail.
+
+Local development: `cp .env.example .env.local`, fill in values, then `npm start`.

@@ -3,14 +3,19 @@ import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 
 const firebaseConfig = {
-  apiKey: "AIzaSyAT7gfzKrRgEAIdQdAqsRi0GFUVOClkv_E",
-  authDomain: "ecommerce-demo-751f7.firebaseapp.com",
-  projectId: "ecommerce-demo-751f7",
-  storageBucket: "ecommerce-demo-751f7.firebasestorage.app",
-  messagingSenderId: "673767938148",
-  appId: "1:673767938148:web:f9088441755e7262196771",
-  measurementId: "G-DCYCF8CXCL"
+  apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
+  authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.REACT_APP_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.REACT_APP_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.REACT_APP_FIREBASE_APP_ID,
+  measurementId: process.env.REACT_APP_FIREBASE_MEASUREMENT_ID
 };
+
+if (process.env.NODE_ENV !== 'production' && !firebaseConfig.apiKey) {
+  // eslint-disable-next-line no-console
+  console.error('Missing Firebase env vars. Copy .env.example to .env.local and fill it in.');
+}
 
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
