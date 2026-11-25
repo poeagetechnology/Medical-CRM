@@ -1,70 +1,76 @@
-# NexCRM — React CRM Dashboard
+# MedCRM — Hospital Management
 
-A full-featured CRM SaaS dashboard built with React, Recharts, and Lucide React.
+Patients, scheduling, operations, billing and analytics for a hospital, built with
+React (Create React App), Tailwind CSS, Firebase Authentication and Cloud Firestore.
 
-## 🚀 Getting Started
+## Getting started
 
-### Prerequisites
-- Node.js 16+ and npm
-
-### Install & Run
+Requires Node.js 18+.
 
 ```bash
 npm install
-npm start
+cp .env.example .env.local   # fill in your Firebase web app values
+npm run dev                  # same as npm start, opens http://localhost:3000
 ```
 
-Opens at http://localhost:3000
+### One-time Firebase setup
 
-### Build for Production
+1. Enable **Email/Password** sign-in and create a **Firestore** database.
+2. Publish the security rules: `firebase deploy --only firestore:rules`
+   (or paste `firestore.rules` into Console → Firestore → Rules).
+3. Create the first Super Admin:
+   `SUPER_ADMIN_EMAIL=you@hospital.com SUPER_ADMIN_PASSWORD=<strong password> npm run create-super-admin`
 
-```bash
-npm run build
-```
+Everyone else uses **Create account** and waits for a Super Admin to approve them
+under **Users & Access**.
 
-## 📁 Project Structure
+## Features
+
+| Area | Screens |
+| --- | --- |
+| Overview | Dashboard, Calendar, Notifications, Search (`Ctrl/⌘ + K` from anywhere) |
+| Patients | Patients, Patient profile, Reports, OP queue, Checkups |
+| Operations | Appointments, Doctors, Smart reports, Surgeries, Beds, Ambulance, Medical center |
+| Finance | Billing, Analytics |
+| Administration | Staff, Users & access, Settings (backup / reset), My profile |
+
+Linked workflows: appointment check-in issues an OP token; admitting a patient to a
+bed sets their room; starting a surgery marks the surgeon busy; completed visits can
+be invoiced; renaming a patient or doctor updates linked records.
+
+## Project structure
 
 ```
 src/
-├── components/
-│   ├── layout/
-│   │   ├── Sidebar.jsx       # Collapsible sidebar with navigation
-│   │   └── Header.jsx        # Top header with search & actions
-│   ├── dashboard/
-│   │   └── MetricCard.jsx    # Metric cards, activity, team rows
-│   └── charts/
-│       └── Charts.jsx        # Recharts wrappers (area, bar, pie)
-├── pages/
-│   ├── DashboardPage.jsx     # Main dashboard with all widgets
-│   ├── ContactsPage.jsx      # Contacts table with search/filter
-│   ├── DealsPage.jsx         # Deals table with stage filtering
-│   ├── AnalyticsPage.jsx     # Analytics with charts & KPIs
-│   └── PlaceholderPages.jsx  # Pipeline, Calendar, Messages, Reports
-├── data/
-│   └── mockData.js           # All mock CRM data
-└── styles/
-    └── globals.css           # Global CSS variables & reset
+  App.jsx                 auth gate, routing (hash based), page registry
+  components/
+    ui/                   design system: buttons, modal, drawer, table, form, toasts
+    layout/               sidebar, top bar, command palette, error boundary
+    editors/              one create/edit/delete form per record type
+    charts.jsx            themed recharts wrappers
+  config/navigation.js    menu entries and quick actions
+  context/AuthContext.jsx sign-in, sign-up, profile, password
+  hooks/                  live collections, workflows, routing, theme
+  pages/                  one file per screen
+  services/               rename cascade, printing, backup / reset
+  utils/                  roles (RBAC), form definitions, formatting, statistics
+firestore.rules           server-side permissions (mirrors utils/roles.js)
 ```
 
-## 🎨 Design System
+## Changing permissions
 
-- **Theme**: Dark mode with CSS variables
-- **Colors**: Blue (#4f7df3), Purple (#a855f7), Cyan (#06b6d4)
-- **Font**: Plus Jakarta Sans + DM Mono
-- **Charts**: Recharts (AreaChart, BarChart, PieChart)
-- **Icons**: Lucide React
+Edit `src/utils/roles.js` **and** `firestore.rules`, then re-deploy the rules.
 
-## 📦 Dependencies
+## Adding a screen
 
-- `react` ^18.2.0
-- `recharts` ^2.8.0  
-- `lucide-react` ^0.383.0
+1. Create `src/pages/MyPage.jsx` using `Page` and `PageHeader` from `components/ui`.
+2. Register it in `SCREENS` (`App.jsx`), `SECTIONS` (`config/navigation.js`) and
+   `PAGE_ACCESS` (`utils/roles.js`).
 
-## ☁️ Deploying to Vercel
+## Deploying to Vercel
 
-1. Push the repo to GitHub and import it at https://vercel.com/new (framework is auto-detected as Create React App; `vercel.json` sets build/output).
-2. In **Project → Settings → Environment Variables**, add every variable listed in `.env.example` (all `REACT_APP_FIREBASE_*`) for Production, Preview and Development.
-3. Deploy. CRA inlines `REACT_APP_*` values at build time, so **redeploy after changing any variable**.
-4. In Firebase Console → Authentication → Settings → **Authorized domains**, add your `*.vercel.app` / custom domain, otherwise sign-in will fail.
-
-Local development: `cp .env.example .env.local`, fill in values, then `npm start`.
+1. Import the repo at https://vercel.com/new (`vercel.json` sets build and output).
+2. Add every `REACT_APP_FIREBASE_*` variable from `.env.example` under
+   Project → Settings → Environment Variables.
+3. Deploy. CRA inlines these values at build time, so redeploy after changing them.
+4. Add your domain in Firebase Console → Authentication → Settings → Authorized domains.

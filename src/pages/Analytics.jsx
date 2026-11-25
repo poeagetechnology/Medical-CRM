@@ -1,125 +1,163 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { BedDouble, CalendarClock, CircleDollarSign, Percent, UserPlus } from 'lucide-react';
 import { useCollection } from '../hooks/useCollection';
-import { FiLoader } from 'react-icons/fi';
+import { ColumnChart, DonutChart, TrendChart } from '../components/charts';
+import { Card, CardHeader, EmptyState, ExportButton, Page, PageHeader, PageLoader, Progress, StatCard, StatGrid, Tabs } from '../components/ui';
+import { APPOINTMENT_STATUSES, PATIENT_STATUSES } from '../utils/formConfigs';
+import { addDays, exportCsv, formatMoney, formatMoneyShort, todayISO } from '../utils/format';
+import { dailySeries, dayKey, groupCount, monthlySeries, paidDay, sumAmounts } from '../utils/stats';
+
+const PERIODS = [
+  { value: '30', label: '30 days' },
+  { value: '90', label: '90 days' },
+  { value: '365', label: '12 months' },
+];
+
+const AGE_GROUPS = [['0–17', 0, 17], ['18–35', 18, 35], ['36–50', 36, 50], ['51–65', 51, 65], ['65+', 66, 200]];
 
 export default function Analytics() {
-  const { data: patients, loading: pLoad } = useCollection('patients');
-  const { data: billing, loading: bLoad } = useCollection('billing');
-  const { data: beds, loading: bedLoad } = useCollection('beds');
+  const patients = useCollection('patients');
+  const billing = useCollection('billing');
+  const beds = useCollection('beds');
+  const appointments = useCollection('appointments');
+  const [period, setPeriod] = useState('30');
 
-  const loading = pLoad || bLoad || bedLoad;
+  if (patients.loading || billing.loading || beds.loading || appointments.loading) return <PageLoader />;
 
-  if (loading) return <Loader />;
+  const days = Number(period);
+  const from = addDays(todayISO(), -days + 1);
+  const inPeriod = (key) => key >= from && key <= todayISO();
 
-  const totalPatients = patients.length;
-  const emergency = patients.filter(p => p.status === 'Critical').length;
-  const parseAmount = (str) => parseInt((str || '0').replace(/[^0-9]/g, ''), 10) || 0;
-  const paidBilling = billing.filter(b => b.status === 'Paid');
-  const revenue = `$${paidBilling.reduce((sum, b) => sum + parseAmount(b.amount), 0).toLocaleString()}`;
-  const occupiedBeds = beds.filter(b => b.status === 'Occupied').length;
-  const bedPct = beds.length > 0 ? Math.round((occupiedBeds / beds.length) * 100) : 0;
+  const paid = billing.data.filter((b) => b.status === 'Paid' && inPeriod(paidDay(b)));
+  const billed = billing.data.filter((b) => b.status !== 'Cancelled' && inPeriod(dayKey(b)));
+  const collectedOfBilled = sumAmounts(billed.filter((b) => b.status === 'Paid'));
+  const collectionRate = sumAmounts(billed) ? Math.round((collectedOfBilled / sumAmounts(billed)) * 100) : 0;
+  const appts = appointments.data.filter((a) => inPeriod(a.date || ''));
+  const newPatients = patients.data.filter((p) => inPeriod(dayKey(p, 'createdAt')));
+  const occupied = beds.data.filter((b) => b.status === 'Occupied').length;
+  const occupancy = beds.data.length ? Math.round((occupied / beds.data.length) * 100) : 0;
 
-  const critical = patients.filter(p => p.status === 'Critical').length;
-  const stable = patients.filter(p => p.status === 'Stable').length;
-  const checkup = patients.filter(p => p.status === 'Checkup').length;
-  const total = patients.length || 1;
+  const long = days > 90;
+  const series = (records, dayOf, valueOf) =>
+    long ? monthlySeries(records, 12, dayOf, valueOf) : dailySeries(records, days, dayOf, valueOf);
+
+  const statusData = [
+    ...PATIENT_STATUSES.map((s) => ({ name: s, value: patients.data.filter((p) => p.status === s).length })),
+    { name: 'Unspecified', value: patients.data.filter((p) => !PATIENT_STATUSES.includes(p.status)).length },
+  ];
+  const apptStatus = APPOINTMENT_STATUSES.map((s) => ({ name: s, value: appts.filter((a) => a.status === s).length }));
+  const byService = groupCount(paid, (b) => b.service, (b) => sumAmounts([b]));
+  const byDoctor = groupCount(appts.filter((a) => a.status !== 'Cancelled'), (a) => a.doctor).slice(0, 8);
+  const ages = AGE_GROUPS.map(([label, min, max]) => ({
+    label,
+    value: patients.data.filter((p) => p.age !== '' && p.age !== undefined && Number(p.age) >= min && Number(p.age) <= max).length,
+  }));
+  const wards = groupCount(beds.data, (b) => b.ward || 'General').map((w) => {
+    const used = beds.data.filter((b) => (b.ward || 'General') === w.name && b.status === 'Occupied').length;
+    return { ...w, used, pct: Math.round((used / w.value) * 100) };
+  });
+
+  const exportSummary = () =>
+    exportCsv(`analytics-${period}d-${todayISO()}.csv`, [
+      { label: 'Metric', value: (r) => r[0] },
+      { label: 'Value', value: (r) => r[1] },
+    ], [
+      ['Period (days)', days],
+      ['Revenue collected', formatMoney(sumAmounts(paid))],
+      ['Collection rate', `${collectionRate}%`],
+      ['Appointments', appts.length],
+      ['New patients', newPatients.length],
+      ['Total patients', patients.data.length],
+      ...statusData.map((s) => [`Patients: ${s.name}`, s.value]),
+      ...apptStatus.map((s) => [`Appointments: ${s.name}`, s.value]),
+      ...byService.map((s) => [`Revenue: ${s.name}`, s.value]),
+      ['Bed occupancy', `${occupancy}%`],
+      ['Beds occupied', occupied],
+      ['Beds total', beds.data.length],
+    ]);
 
   return (
-    <div className="p-6 space-y-5">
+    <Page>
+      <PageHeader
+        title="Analytics"
+        description="Performance across patients, scheduling, capacity and revenue."
+        actions={
+          <>
+            <Tabs value={period} onChange={setPeriod} options={PERIODS} />
+            <ExportButton onClick={exportSummary} />
+          </>
+        }
+      />
 
-      <div className="grid grid-cols-4 gap-4">
-        <Card title="Total Patients" value={totalPatients} />
-        <Card title="Emergency Cases" value={emergency} danger />
-        <Card title="Revenue (Paid)" value={revenue} success />
-        <Card title="Bed Occupancy" value={`${bedPct}%`} warning />
+      <StatGrid cols={5}>
+        <StatCard label="Revenue collected" value={formatMoneyShort(sumAmounts(paid))} hint={`${paid.length} payments`} icon={CircleDollarSign} tone="green" />
+        <StatCard label="Collection rate" value={`${collectionRate}%`} hint="Of amounts billed" icon={Percent} tone="violet" />
+        <StatCard label="Appointments" value={appts.length} hint={`${apptStatus.find((s) => s.name === 'Completed').value} completed`} icon={CalendarClock} />
+        <StatCard label="New patients" value={newPatients.length} hint={`${patients.data.length} in total`} icon={UserPlus} tone="cyan" />
+        <StatCard label="Bed occupancy" value={`${occupancy}%`} hint={`${occupied} of ${beds.data.length} beds`} icon={BedDouble} tone="amber" />
+      </StatGrid>
+
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+        <Card className="xl:col-span-2">
+          <CardHeader title="Revenue trend" description={long ? 'Collected per month' : 'Collected per day'} />
+          <div className="p-4"><TrendChart data={series(paid, paidDay, (b) => sumAmounts([b]))} format={formatMoneyShort} color="#10b981" /></div>
+        </Card>
+        <Card>
+          <CardHeader title="Revenue by service" />
+          <div className="p-5"><DonutChart data={byService} totalLabel="collected" format={formatMoneyShort} /></div>
+        </Card>
+
+        <Card className="xl:col-span-2">
+          <CardHeader title="Appointment volume" description={long ? 'Per month' : 'Per day'} />
+          <div className="p-4"><ColumnChart data={series(appts, (a) => a.date || '')} name="appointments" /></div>
+        </Card>
+        <Card>
+          <CardHeader title="Appointment outcomes" />
+          <div className="p-5"><DonutChart data={apptStatus} totalLabel="appointments" /></div>
+        </Card>
+
+        <Card>
+          <CardHeader title="Patient status" description="All patients" />
+          <div className="p-5"><DonutChart data={statusData} totalLabel="patients" /></div>
+        </Card>
+        <Card>
+          <CardHeader title="Age distribution" description="All patients with a recorded age" />
+          <div className="p-4"><ColumnChart data={ages} name="patients" color="#8b5cf6" /></div>
+        </Card>
+        <Card>
+          <CardHeader title="Busiest doctors" description="Appointments in this period" />
+          {byDoctor.length === 0 ? <EmptyState compact title="No appointments in this period" /> : (
+            <ul className="p-5 space-y-4">
+              {byDoctor.map((d) => (
+                <li key={d.name}>
+                  <div className="flex justify-between text-xs mb-1.5">
+                    <span className="font-semibold text-fg truncate">{d.name}</span>
+                    <span className="font-bold text-fg tabular">{d.value}</span>
+                  </div>
+                  <Progress value={(d.value / byDoctor[0].value) * 100} />
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
       </div>
 
-      <div className="bg-white p-4 rounded-xl shadow-sm border">
-        <h3 className="font-semibold mb-4">Patient Status Overview</h3>
-        <div className="space-y-3">
-          <Bar label="Critical" value={Math.round((critical / total) * 100)} color="bg-red-500" />
-          <Bar label="Stable" value={Math.round((stable / total) * 100)} color="bg-green-500" />
-          <Bar label="Checkup" value={Math.round((checkup / total) * 100)} color="bg-yellow-500" />
-        </div>
-      </div>
-
-      <div className="bg-white p-4 rounded-xl shadow-sm border">
-        <h3 className="font-semibold mb-4">Billing Overview</h3>
-        <table className="w-full text-sm">
-          <thead className="text-gray-500 border-b">
-            <tr>
-              <th className="text-left py-2">Patient</th>
-              <th>Amount</th>
-              <th>Date</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {billing.map((b) => (
-              <tr key={b.id} className="border-b">
-                <td className="py-2">{b.patient}</td>
-                <td className="text-center">{b.amount}</td>
-                <td className="text-center text-gray-400">{b.date || '-'}</td>
-                <td className={`text-center font-medium ${b.status === 'Paid' ? 'text-green-500' : 'text-red-500'}`}>
-                  {b.status}
-                </td>
-              </tr>
+      <Card>
+        <CardHeader title="Capacity by ward" />
+        {wards.length === 0 ? <EmptyState compact icon={BedDouble} title="No beds configured" /> : (
+          <ul className="p-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-x-8 gap-y-5">
+            {wards.map((w) => (
+              <li key={w.name}>
+                <div className="flex justify-between text-xs mb-1.5">
+                  <span className="font-semibold text-fg">{w.name}</span>
+                  <span className="text-fg-subtle tabular">{w.used}/{w.value} · <b className="text-fg">{w.pct}%</b></span>
+                </div>
+                <Progress value={w.pct} tone={w.pct >= 85 ? 'red' : w.pct >= 60 ? 'amber' : 'green'} />
+              </li>
             ))}
-          </tbody>
-        </table>
-      </div>
-
-      <div className="bg-white p-4 rounded-xl shadow-sm border">
-        <h3 className="font-semibold mb-4">Recent Patients</h3>
-        <div className="space-y-2 text-sm">
-          {patients.map((p) => (
-            <div key={p.id} className="flex justify-between border-b pb-2">
-              <span>{p.name}</span>
-              <span className={
-                p.status === 'Critical' ? 'text-red-500' :
-                p.status === 'Stable' ? 'text-green-500' : 'text-yellow-500'
-              }>
-                {p.status}
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-    </div>
-  );
-}
-
-function Loader() {
-  return (
-    <div className="flex items-center justify-center h-64 text-gray-400 gap-2">
-      <FiLoader className="animate-spin" /> Loading...
-    </div>
-  );
-}
-
-function Card({ title, value, danger, success, warning }) {
-  return (
-    <div className="bg-white p-4 rounded-xl shadow-sm border">
-      <p className="text-xs text-gray-500">{title}</p>
-      <h2 className="text-xl font-semibold">{value}</h2>
-      <div className={`text-xs mt-1 ${danger ? 'text-red-500' : success ? 'text-green-500' : warning ? 'text-yellow-500' : ''}`}>
-        Live Data
-      </div>
-    </div>
-  );
-}
-
-function Bar({ label, value, color }) {
-  return (
-    <div>
-      <div className="flex justify-between text-xs mb-1">
-        <span>{label}</span>
-        <span>{value}%</span>
-      </div>
-      <div className="w-full bg-gray-200 h-2 rounded">
-        <div className={`${color} h-2 rounded`} style={{ width: `${value}%` }} />
-      </div>
-    </div>
+          </ul>
+        )}
+      </Card>
+    </Page>
   );
 }

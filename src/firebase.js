@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import { initializeFirestore } from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
@@ -19,5 +19,10 @@ if (process.env.NODE_ENV !== 'production' && !firebaseConfig.apiKey) {
 
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
-export const db = getFirestore(app);
+// Firebase 12 streams Firestore over fetch() by default in the browser. Every
+// time a listener closes, that transport aborts its fetch and leaks an
+// unhandled "AbortError: signal is aborted without reason" rejection, which
+// the dev overlay shows as a crash. The XHR transport has no such leak and
+// behaves identically for onSnapshot/reads/writes.
+export const db = initializeFirestore(app, { useFetchStreams: false });
 export default app;

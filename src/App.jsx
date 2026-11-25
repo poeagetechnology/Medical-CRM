@@ -1,110 +1,117 @@
 import React, { useState } from 'react';
+import { MotionConfig } from 'framer-motion';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { Sidebar } from './components/layout/Sidebar';
-import Header from './components/layout/Header';
-import Admin from './pages/Admin';
-import DashboardPage from './pages/DashboardPage';
-import AppointmentsPage from './pages/Appointments';
-import AnalyticsPage from './pages/Analytics';
-import PatientPage from './pages/Patients';
-import PatientDetailsPage from './pages/PatientsDetails';
-import PatientReportsPage from './pages/PatientsReports';
-import OPPatientPage from './pages/OPPatients';
-import CheckupPatientPage from './pages/CheckupPatients';
-import BillingPage from './pages/Billing';
-import DoctorPage from './pages/Doctors';
-import AmbulancePage from './pages/Ambulance';
-import SurgeryPage from './pages/Surgeries';
-import ReportPage from './pages/Reports';
-import BedsPage from './pages/Beds';
-import MedicalCenterPage from './pages/MedicalCenter';
-import LoginPage from './sorce/Login';
-import SignupPage from './sorce/Signup';
-import CallendarPage from './sorce/Callender';
-import SettingsPage from './sorce/Settings';
-import NotificationsPage from './sorce/Notification';
-import SearchPage from './sorce/Searchconsole';
+import AppShell from './components/layout/AppShell';
+import ErrorBoundary from './components/layout/ErrorBoundary';
+import { AccountBlocked, AccessDenied } from './components/AccessScreens';
+import { Spinner, ToastProvider } from './components/ui';
+import { useHashRoute } from './hooks/useHashRoute';
+import { useTheme } from './hooks/useTheme';
+import { PAGES } from './config/navigation';
+import { canViewPage, isActiveProfile } from './utils/roles';
+
+import Login from './pages/auth/Login';
+import Signup from './pages/auth/Signup';
+import Dashboard from './pages/Dashboard';
+import Calendar from './pages/Calendar';
+import Notifications from './pages/Notifications';
+import SearchPage from './pages/Search';
+import Patients from './pages/Patients';
+import PatientProfile from './pages/PatientProfile';
+import PatientReports from './pages/PatientReports';
+import OPQueue from './pages/OPQueue';
+import Checkups from './pages/Checkups';
+import Appointments from './pages/Appointments';
+import Doctors from './pages/Doctors';
+import SmartReports from './pages/SmartReports';
+import Surgeries from './pages/Surgeries';
+import Beds from './pages/Beds';
+import Ambulance from './pages/Ambulance';
+import Pharmacy from './pages/Pharmacy';
+import Billing from './pages/Billing';
+import Analytics from './pages/Analytics';
 import Staff from './pages/Staff';
-import ProfilePage from './sorce/Profile';
+import Admin from './pages/Admin';
+import Settings from './pages/Settings';
+import Profile from './pages/Profile';
 import './styles/index.css';
 
-const pages = {
-  dashboard: DashboardPage,
-  patients: PatientPage,
-  patientDetails: PatientDetailsPage,
-  patientReports: PatientReportsPage,
-  opPatients: OPPatientPage,
-  checkupPatients: CheckupPatientPage,
-  appointments: AppointmentsPage,
-  analytics: AnalyticsPage,
-  billing: BillingPage,
-  report: ReportPage,
-  doctors: DoctorPage,
-  ambulance: AmbulancePage,
-  surgeries: SurgeryPage,
-  beds: BedsPage,
-  medicalCenter: MedicalCenterPage,
-  callendar: CallendarPage,
-  settings: SettingsPage,
-  notifications: NotificationsPage,
+// Keys match PAGE_ACCESS in utils/roles.js.
+const SCREENS = {
+  dashboard: Dashboard,
+  callendar: Calendar,
+  notifications: Notifications,
   search: SearchPage,
+  patients: Patients,
+  patientDetails: PatientProfile,
+  patientReports: PatientReports,
+  opPatients: OPQueue,
+  checkupPatients: Checkups,
+  appointments: Appointments,
+  doctors: Doctors,
+  report: SmartReports,
+  surgeries: Surgeries,
+  beds: Beds,
+  ambulance: Ambulance,
+  medicalCenter: Pharmacy,
+  billing: Billing,
+  analytics: Analytics,
   staff: Staff,
   admin: Admin,
-  profile: ProfilePage,
+  settings: Settings,
+  profile: Profile,
 };
 
 function AppContent() {
-  const { user, profile } = useAuth();
-  const [activePage, setActivePage] = useState('dashboard');
+  const { user, profile, profileError, signingUp } = useAuth();
+  const { page, params, go } = useHashRoute();
   const [authView, setAuthView] = useState('login');
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
-  if (user === undefined) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="flex items-center gap-2 text-gray-500 text-sm">
-          <span className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-          Loading...
-        </div>
-      </div>
-    );
+  // Still checking the session.
+  if (user === undefined) return <Spinner full />;
+
+  // Signed out - or mid sign-up (keep the form mounted so errors stay visible).
+  if (!user || signingUp) {
+    return authView === 'signup'
+      ? <Signup onSwitchToLogin={() => setAuthView('login')} />
+      : <Login onSwitchToSignup={() => setAuthView('signup')} />;
   }
 
-  if (!user) {
-    if (authView === 'signup') {
-      return <SignupPage onSwitchToLogin={() => setAuthView('login')} />;
-    }
-    return <LoginPage onSwitchToSignup={() => setAuthView('signup')} />;
+  // Signed in, role/status still loading.
+  if (profile === undefined) return <Spinner full label="Loading your account…" />;
+
+  // Signed in but not allowed in: pending approval, suspended, or no profile.
+  if (profileError || !isActiveProfile(profile)) {
+    return <AccountBlocked profile={profile} profileError={profileError} />;
   }
 
-  const PageComponent = pages[activePage] || DashboardPage;
-  const userRole = profile?.role || 'Admin';
+  const active = SCREENS[page] ? page : 'dashboard';
+  const Screen = SCREENS[active];
+  document.title = `${PAGES[active].label} · MedCRM`;
 
   return (
-    <div className="flex min-h-screen bg-slate-50">
-      <Sidebar
-        activePage={activePage}
-        setActivePage={setActivePage}
-        collapsed={sidebarCollapsed}
-        setCollapsed={setSidebarCollapsed}
-      />
-      <div
-        className="flex flex-col flex-1 min-h-screen transition-all duration-300"
-        style={{ marginLeft: sidebarCollapsed ? '68px' : '240px' }}
-      >
-        <Header activePage={activePage} role={userRole} />
-        <main className="flex-1 overflow-y-auto">
-          <PageComponent />
-        </main>
-      </div>
-    </div>
+    <AppShell activePage={active} onNavigate={go}>
+      {canViewPage(profile, active) ? (
+        <ErrorBoundary key={active}>
+          <Screen navigate={go} params={params} />
+        </ErrorBoundary>
+      ) : (
+        <AccessDenied role={profile.role} onBack={() => go('dashboard')} />
+      )}
+    </AppShell>
   );
 }
 
 export default function App() {
+  // Applies the saved theme (and follows the system theme when selected).
+  useTheme();
   return (
-    <AuthProvider>
-      <AppContent />
-    </AuthProvider>
+    <MotionConfig reducedMotion="user">
+      <ToastProvider>
+        <AuthProvider>
+          <AppContent />
+        </AuthProvider>
+      </ToastProvider>
+    </MotionConfig>
   );
 }

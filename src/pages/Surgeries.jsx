@@ -1,73 +1,150 @@
-import React from 'react';
-import { useCollection } from '../hooks/useCollection';
-import { FiLoader } from 'react-icons/fi';
+import React, { useState } from 'react';
+import { Activity, Ban, CalendarClock, CheckCircle2, Download, LayoutList, Pencil, Play, Plus, Rows3, Scissors, Trash2 } from 'lucide-react';
+import { useCreateIntent, useParamState } from '../hooks/useParams';
+import { useSurgeryActions } from '../hooks/useWorkflows';
+import { SurgeryForm } from '../components/editors';
+import {
+  Button, Card, ConfirmDialog, DataTable, DateNav, ExportButton, FilterBar, FilterSelect, IconButton, Page,
+  PageHeader, PageLoader, Person, SearchInput, StatCard, StatGrid, StatusBadge, Tabs, useAction,
+} from '../components/ui';
+import { OT_ROOMS, SURGERY_STATUSES } from '../utils/formConfigs';
+import { exportCsv, formatDate, formatTime, matches, todayISO } from '../utils/format';
 
-export default function Surgeries() {
-  const { data: surgeries, loading } = useCollection('surgeries');
+const CSV = [
+  { label: 'Patient', value: (s) => s.patient },
+  { label: 'Procedure', value: (s) => s.type },
+  { label: 'Surgeon', value: (s) => s.doctor },
+  { label: 'OT Room', value: (s) => s.room },
+  { label: 'Date', value: (s) => s.date },
+  { label: 'Time', value: (s) => s.time },
+  { label: 'Duration (h)', value: (s) => s.duration },
+  { label: 'Status', value: (s) => s.status },
+];
 
-  if (loading) return <Loader />;
+export default function Surgeries({ navigate, params }) {
+  const store = useSurgeryActions();
+  const { data: surgeries, loading, canWrite, canDelete } = store;
+  const run = useAction();
 
-  return (
-    <div className="p-6 space-y-5">
+  const [view, setView] = useState('list');
+  const [date, setDate] = useState(todayISO());
+  const [search, setSearch] = useParamState(params, 'q');
+  const [status, setStatus] = useState('All');
+  const [room, setRoom] = useState('');
+  const [editing, setEditing] = useState(null);
+  const [deleting, setDeleting] = useState(null);
 
-      <div className="grid grid-cols-3 gap-4">
-        <Card title="Total Surgeries" value={surgeries.length} />
-        <Card title="In Progress" value={surgeries.filter(s => s.status === 'In Progress').length} color="text-red-500" />
-        <Card title="Completed" value={surgeries.filter(s => s.status === 'Completed').length} color="text-green-500" />
-      </div>
+  useCreateIntent({ params, navigate, page: 'surgeries', allowed: canWrite, open: () => setEditing({}) });
 
-      <div className="bg-white rounded-xl shadow-sm border p-4">
-        <h3 className="font-semibold mb-4">Surgery Schedule</h3>
-        <table className="w-full text-sm">
-          <thead className="text-gray-500 border-b">
-            <tr>
-              <th className="text-left py-2">Patient</th>
-              <th>Procedure</th>
-              <th>Doctor</th>
-              <th>OT Room</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {surgeries.map((s) => (
-              <tr key={s.id} className="border-b hover:bg-gray-50 transition">
-                <td className="font-medium py-2">{s.patient}</td>
-                <td className="text-center">{s.type}</td>
-                <td className="text-center">{s.doctor}</td>
-                <td className="text-center">{s.room}</td>
-                <td className={`font-medium text-center
-                  ${s.status === 'In Progress' ? 'text-red-500' : ''}
-                  ${s.status === 'Completed' ? 'text-green-500' : ''}
-                  ${s.status === 'Scheduled' ? 'text-blue-500' : ''}
-                `}>
-                  {s.status}
-                </td>
-              </tr>
-            ))}
-            {surgeries.length === 0 && (
-              <tr><td colSpan={5} className="py-6 text-center text-gray-400">No surgeries found.</td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+  if (loading) return <PageLoader />;
 
-    </div>
+  const rows = surgeries
+    .filter((s) => status === 'All' || s.status === status)
+    .filter((s) => !room || s.room === room)
+    .filter((s) => matches(search, s.patient, s.type, s.doctor, s.room));
+  const count = (st) => surgeries.filter((s) => s.status === st).length;
+
+  const actions = (s) => (
+    <>
+      {canWrite && s.status === 'Scheduled' && <IconButton label="Start surgery" icon={Play} tone="brand" onClick={() => run(() => store.setStatus(s, 'In Progress'), 'Surgery started')} />}
+      {canWrite && s.status === 'In Progress' && <IconButton label="Complete surgery" icon={CheckCircle2} tone="green" onClick={() => run(() => store.setStatus(s, 'Completed'), 'Surgery completed')} />}
+      {canWrite && s.status === 'Scheduled' && <IconButton label="Cancel surgery" icon={Ban} tone="red" onClick={() => run(() => store.setStatus(s, 'Cancelled'), 'Surgery cancelled')} />}
+      {canWrite && <IconButton label="Edit" icon={Pencil} tone="brand" onClick={() => setEditing(s)} />}
+      {canDelete && <IconButton label="Delete" icon={Trash2} tone="red" onClick={() => setDeleting({ rows: [s] })} />}
+    </>
   );
-}
 
-function Loader() {
   return (
-    <div className="flex items-center justify-center h-64 text-gray-400 gap-2">
-      <FiLoader className="animate-spin" /> Loading...
-    </div>
-  );
-}
+    <Page>
+      <PageHeader
+        title="Surgeries"
+        description="Operating theatre schedule and surgical workflow."
+        actions={
+          <>
+            <ExportButton onClick={() => exportCsv('surgeries.csv', CSV, rows)} disabled={!rows.length} />
+            {canWrite && <Button variant="primary" icon={Plus} onClick={() => setEditing(view === 'board' ? { date } : {})}>Schedule surgery</Button>}
+          </>
+        }
+      />
 
-function Card({ title, value, color }) {
-  return (
-    <div className="bg-white p-4 rounded-xl border shadow-sm">
-      <p className="text-xs text-gray-500">{title}</p>
-      <h2 className={`text-xl font-semibold ${color || ''}`}>{value}</h2>
-    </div>
+      <StatGrid>
+        <StatCard label="Total" value={surgeries.length} icon={Scissors} active={status === 'All'} onClick={() => setStatus('All')} />
+        <StatCard label="Scheduled" value={count('Scheduled')} icon={CalendarClock} tone="blue" active={status === 'Scheduled'} onClick={() => setStatus('Scheduled')} />
+        <StatCard label="In progress" value={count('In Progress')} icon={Activity} tone="violet" active={status === 'In Progress'} onClick={() => setStatus('In Progress')} />
+        <StatCard label="Completed" value={count('Completed')} icon={CheckCircle2} tone="green" active={status === 'Completed'} onClick={() => setStatus('Completed')} />
+      </StatGrid>
+
+      <FilterBar right={<Tabs value={view} onChange={setView} options={[{ value: 'list', label: 'List', icon: LayoutList }, { value: 'board', label: 'Theatre board', icon: Rows3 }]} />}>
+        <SearchInput value={search} onChange={setSearch} placeholder="Search patient, procedure, surgeon…" />
+        <FilterSelect label="All theatres" value={room} onChange={setRoom} options={OT_ROOMS} />
+        <Tabs value={status} onChange={setStatus} options={['All', ...SURGERY_STATUSES]} />
+      </FilterBar>
+
+      {view === 'list' ? (
+        <DataTable
+          rows={rows}
+          initialSort={{ key: 'date', dir: -1 }}
+          columns={[
+            { key: 'patient', header: 'Patient', render: (s) => <Person name={s.patient} size={32} /> },
+            { key: 'type', header: 'Procedure', render: (s) => <span className="font-semibold text-fg">{s.type}</span> },
+            { key: 'doctor', header: 'Surgeon', hide: 'lg' },
+            { key: 'room', header: 'Theatre', hide: 'md' },
+            { key: 'date', header: 'When', sortValue: (s) => `${s.date} ${s.time}`, render: (s) => <span className="whitespace-nowrap">{formatDate(s.date)} · {formatTime(s.time)}</span> },
+            { key: 'status', header: 'Status', render: (s) => <StatusBadge status={s.status} /> },
+          ]}
+          rowActions={actions}
+          bulkActions={(list) => <Button size="sm" icon={Download} onClick={() => exportCsv('surgeries-selected.csv', CSV, list)}>Export</Button>}
+          onBulkDelete={canDelete ? (list, clear) => setDeleting({ rows: list, clear }) : undefined}
+          empty={{ icon: Scissors, title: surgeries.length ? 'No surgeries match your filters' : 'No surgeries scheduled' }}
+        />
+      ) : (
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm font-bold text-fg">{formatDate(date, { weekday: 'long', month: 'long', day: 'numeric' })}</p>
+            <DateNav value={date} onChange={setDate} />
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 items-start">
+            {OT_ROOMS.filter((r) => !room || r === room).map((r) => {
+              const list = rows.filter((s) => s.room === r && s.date === date).sort((a, b) => String(a.time).localeCompare(String(b.time)));
+              return (
+                <Card key={r}>
+                  <div className="flex items-center justify-between px-4 py-3 border-b border-line">
+                    <h3 className="text-sm font-bold text-fg">{r}</h3>
+                    {canWrite && <IconButton size="sm" label={`Schedule in ${r}`} icon={Plus} tone="brand" onClick={() => setEditing({ date, room: r })} />}
+                  </div>
+                  <ul className="p-3 space-y-3">
+                    {list.map((s) => (
+                      <li key={s.id} className="rounded-lg border border-line p-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs font-bold text-brand-600 tabular">{formatTime(s.time)}{s.duration ? ` · ${s.duration}h` : ''}</span>
+                          <StatusBadge status={s.status} />
+                        </div>
+                        <p className="text-sm font-bold text-fg mt-2">{s.type}</p>
+                        <p className="text-xs text-fg-subtle">{s.patient} · {s.doctor}</p>
+                        <div className="flex justify-end gap-0.5 mt-2">{actions(s)}</div>
+                      </li>
+                    ))}
+                    {list.length === 0 && <li className="text-xs text-fg-subtle text-center py-6">Free all day</li>}
+                  </ul>
+                </Card>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {editing && <SurgeryForm record={editing} onClose={() => setEditing(null)} />}
+      {deleting && (
+        <ConfirmDialog
+          title={deleting.rows.length > 1 ? `Delete ${deleting.rows.length} surgeries` : 'Delete surgery'}
+          message={deleting.rows.length > 1 ? 'The selected surgeries will be permanently deleted.' : `Delete the ${deleting.rows[0].type || 'surgery'} scheduled for ${deleting.rows[0].patient}?`}
+          onConfirm={async () => {
+            await store.removeMany(deleting.rows.map((s) => s.id));
+            deleting.clear?.();
+          }}
+          onClose={() => setDeleting(null)}
+        />
+      )}
+    </Page>
   );
 }

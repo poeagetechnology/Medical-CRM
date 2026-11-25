@@ -1,0 +1,173 @@
+rules_version = '2';
+
+// Role-based access control for the Hospital CRM.
+// Mirrors src/utils/roles.js (COLLECTION_ACCESS, APPROVAL_ROLES).
+// Deploy with:  firebase deploy --only firestore:rules
+// (or paste into Firebase Console -> Firestore Database -> Rules -> Publish)
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------------------------------------------------------------- helpers
+    function userPath(uid) {
+      return /databases/$(database)/documents/users/$(uid);
+    }
+    function signedIn() {
+      return request.auth != null;
+    }
+    function profile() {
+      return get(userPath(request.auth.uid)).data;
+    }
+    // Signed in, has a profile document, and the account is Active.
+    function isActive() {
+      return signedIn()
+        && exists(userPath(request.auth.uid))
+        && profile().status == 'Active';
+    }
+    function hasRole(roles) {
+      return isActive() && profile().role in roles;
+    }
+    function bootstrapPath() {
+      return /databases/$(database)/documents/meta/bootstrap;
+    }
+
+    // ------------------------------------------------------------------ users
+    match /users/{uid} {
+
+      // Own profile (needed even while Pending/Suspended) or any profile for a Super Admin.
+      allow read: if signedIn() && (request.auth.uid == uid || hasRole(['Super Admin']));
+
+      // Sign-up: a user may only create THEIR OWN profile, with a role/status pair that is allowed:
+      //  * any staff role              -> Pending (a Super Admin must approve it)
+      //  * the very first Super Admin  -> Active, created in the same batch as meta/bootstrap
+      //    (done once by `npm run create-super-admin`; closed for good afterwards)
+      allow create: if signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['name', 'email', 'role', 'department', 'status', 'createdAt'])
+        && request.resource.data.keys().hasAll(['name', 'email', 'role', 'status'])
+        && request.resource.data.email == request.auth.token.email
+        && (
+          (request.resource.data.role in ['Manager', 'Doctor', 'Nurse', 'Receptionist', 'Lab Technician', 'Viewer']
+            && request.resource.data.status == 'Pending')
+          || (request.resource.data.role == 'Super Admin'
+            && request.resource.data.status == 'Active'
+            && !exists(bootstrapPath())
+            && existsAfter(bootstrapPath())
+            && getAfter(bootstrapPath()).data.uid == uid)
+        );
+
+      // Super Admins manage everyone else's role/status. They cannot change their
+      // own role or status (prevents locking the system out of its last admin).
+      allow update: if hasRole(['Super Admin'])
+        && (request.auth.uid != uid
+            || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'department']));
+
+      // Users may edit only harmless fields of their own profile - never role / status / email.
+      allow update: if signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'department']);
+
+      // Removing a profile revokes the account's access to the CRM.
+      allow delete: if hasRole(['Super Admin']) && request.auth.uid != uid;
+    }
+
+    // Marker for "the first Super Admin already exists".
+    match /meta/{docId} {
+      allow read: if signedIn();
+
+      allow create: if docId == 'bootstrap'
+        && signedIn()
+        && request.resource.data.uid == request.auth.uid
+        && (
+          // an existing Active Super Admin (heals accounts created before this marker existed)
+          hasRole(['Super Admin'])
+          // or the first Super Admin signing up, in the same batch as their profile
+          || (existsAfter(userPath(request.auth.uid))
+              && getAfter(userPath(request.auth.uid)).data.role == 'Super Admin'
+              && getAfter(userPath(request.auth.uid)).data.status == 'Active')
+        );
+
+      allow update, delete: if false;
+    }
+
+    // ------------------------------------------------------------ CRM data
+    // read = list/open, write = create + edit, delete = remove
+    match /patients/{id} {
+      allow read:           if hasRole(['Super Admin', 'Manager', 'Doctor', 'Nurse', 'Receptionist', 'Lab Technician', 'Viewer']);
+      allow create, update: if hasRole(['Super Admin', 'Manager', 'Doctor', 'Nurse', 'Receptionist']);
+      allow delete:         if hasRole(['Super Admin', 'Manager']);
+    }
+    match /doctors/{id} {
+      allow read:           if hasRole(['Super Admin', 'Manager', 'Doctor', 'Nurse', 'Receptionist', 'Lab Technician', 'Viewer']);
+      allow create, update: if hasRole(['Super Admin', 'Manager']);
+      allow delete:         if hasRole(['Super Admin', 'Manager']);
+    }
+    match /appointments/{id} {
+      allow read:           if hasRole(['Super Admin', 'Manager', 'Doctor', 'Nurse', 'Receptionist', 'Lab Technician', 'Viewer']);
+      allow create, update: if hasRole(['Super Admin', 'Manager', 'Doctor', 'Receptionist']);
+      allow delete:         if hasRole(['Super Admin', 'Manager', 'Doctor', 'Receptionist']);
+    }
+    match /billing/{id} {
+      allow read:           if hasRole(['Super Admin', 'Manager', 'Receptionist', 'Viewer']);
+      allow create, update: if hasRole(['Super Admin', 'Manager', 'Receptionist']);
+      allow delete:         if hasRole(['Super Admin', 'Manager']);
+    }
+    match /ambulances/{id} {
+      allow read:           if hasRole(['Super Admin', 'Manager', 'Doctor', 'Nurse', 'Receptionist']);
+      allow create, update: if hasRole(['Super Admin', 'Manager', 'Receptionist']);
+      allow delete:         if hasRole(['Super Admin', 'Manager']);
+    }
+    match /surgeries/{id} {
+      allow read:           if hasRole(['Super Admin', 'Manager', 'Doctor', 'Nurse', 'Receptionist', 'Viewer']);
+      allow create, update: if hasRole(['Super Admin', 'Manager', 'Doctor']);
+      allow delete:         if hasRole(['Super Admin', 'Manager']);
+    }
+    match /beds/{id} {
+      allow read:           if hasRole(['Super Admin', 'Manager', 'Doctor', 'Nurse', 'Receptionist', 'Viewer']);
+      allow create, update: if hasRole(['Super Admin', 'Manager', 'Nurse']);
+      allow delete:         if hasRole(['Super Admin', 'Manager']);
+    }
+    match /medicines/{id} {
+      allow read:           if hasRole(['Super Admin', 'Manager', 'Doctor', 'Nurse', 'Lab Technician']);
+      allow create, update: if hasRole(['Super Admin', 'Manager', 'Lab Technician']);
+      allow delete:         if hasRole(['Super Admin', 'Manager']);
+    }
+    match /opPatients/{id} {
+      allow read:           if hasRole(['Super Admin', 'Manager', 'Doctor', 'Nurse', 'Receptionist', 'Viewer']);
+      allow create, update: if hasRole(['Super Admin', 'Manager', 'Doctor', 'Nurse', 'Receptionist']);
+      allow delete:         if hasRole(['Super Admin', 'Manager', 'Receptionist']);
+    }
+    match /checkupPatients/{id} {
+      allow read:           if hasRole(['Super Admin', 'Manager', 'Doctor', 'Nurse', 'Receptionist', 'Lab Technician']);
+      allow create, update: if hasRole(['Super Admin', 'Manager', 'Doctor', 'Nurse', 'Receptionist', 'Lab Technician']);
+      allow delete:         if hasRole(['Super Admin', 'Manager', 'Receptionist']);
+    }
+    match /staff/{id} {
+      allow read:           if hasRole(['Super Admin', 'Manager']);
+      allow create, update: if hasRole(['Super Admin', 'Manager']);
+      allow delete:         if hasRole(['Super Admin', 'Manager']);
+    }
+    match /admins/{id} {
+      allow read:           if hasRole(['Super Admin']);
+      allow create, update: if hasRole(['Super Admin']);
+      allow delete:         if hasRole(['Super Admin']);
+    }
+    match /patientReports/{id} {
+      allow read:           if hasRole(['Super Admin', 'Manager', 'Doctor', 'Nurse', 'Lab Technician', 'Viewer']);
+      allow create, update: if hasRole(['Super Admin', 'Manager', 'Doctor', 'Lab Technician']);
+      allow delete:         if hasRole(['Super Admin', 'Manager']);
+    }
+    match /notifications/{id} {
+      allow read:           if hasRole(['Super Admin', 'Manager', 'Doctor', 'Nurse', 'Receptionist', 'Lab Technician', 'Viewer']);
+      allow create, update: if hasRole(['Super Admin', 'Manager']);
+      allow delete:         if hasRole(['Super Admin', 'Manager']);
+    }
+    match /activityLogs/{id} {
+      allow read:           if hasRole(['Super Admin', 'Manager', 'Doctor', 'Nurse', 'Receptionist', 'Lab Technician', 'Viewer']);
+      allow create, update: if hasRole(['Super Admin', 'Manager', 'Doctor', 'Nurse', 'Receptionist', 'Lab Technician']);
+      allow delete:         if hasRole(['Super Admin']);
+    }
+
+    // Everything else is denied by default.
+  }
+}

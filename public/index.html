@@ -3,11 +3,35 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>CRM Dashboard</title>
+    <meta name="theme-color" content="#0b1220" />
+    <meta name="description" content="MedCRM - hospital operations, patients, scheduling and billing in one place." />
+    <title>MedCRM · Hospital Management</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <script>
+      // Apply the saved theme before first paint (no light/dark flash).
+      (function () {
+        try {
+          var t = localStorage.getItem('medcrm_theme') || 'light';
+          var dark = t === 'dark' || (t === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          if (dark) document.documentElement.classList.add('dark');
+        } catch (e) {}
+      })();
+
+      // Safety net: registered before any bundle (including the dev error
+      // overlay) so a cancelled network request can never surface as a crash.
+      window.addEventListener('unhandledrejection', function (e) {
+        var r = e.reason;
+        if (r && r.name === 'AbortError') {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+        }
+      });
+    </script>
   </head>
   <body>
+    <noscript>You need to enable JavaScript to run MedCRM.</noscript>
     <div id="root"></div>
   </body>
 </html>
